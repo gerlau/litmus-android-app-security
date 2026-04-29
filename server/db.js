@@ -15,6 +15,7 @@ import {
   deleteRisk,
   getDashboardData,
   listFindings,
+  updatePlatformFeature,
   updateRiskText,
 } from "./dbQueries.js";
 import { DB_PATH, ensureDataDirectory } from "./dbUtils.js";
@@ -27,6 +28,7 @@ export {
   deleteRisk,
   getDashboardData,
   listFindings,
+  updatePlatformFeature,
   updateRiskText,
 };
 

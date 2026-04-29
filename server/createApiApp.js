@@ -10,6 +10,7 @@ import {
   getDashboardData,
   initDb,
   listFindings,
+  updatePlatformFeature,
   updateRiskText,
 } from "./db.js";
 
@@ -83,6 +84,16 @@ export function createApiApp() {
     } catch (error) {
       const status = Number(error.status) || 500;
       res.status(status).json({ error: error.message || "Failed to create platform feature" });
+    }
+  });
+
+  app.put("/api/platform-features/:featureId", (req, res) => {
+    try {
+      const updated = updatePlatformFeature(db, req.params.featureId, req.body || {});
+      res.json({ platformFeature: updated });
+    } catch (error) {
+      const status = Number(error.status) || 500;
+      res.status(status).json({ error: error.message || "Failed to update platform feature" });
     }
   });
 

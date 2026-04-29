@@ -27,8 +27,8 @@ import {
 const CURRENT_TABLES = ["apps", "features", "risks", "findings"];
 const TARGET_COLUMNS = {
   apps: ["id", "name", "sector", "agency", "app_version", "point_of_contact_json", "sort_order", "created_at", "updated_at"],
-  features: ["id", "name", "additional_context", "demo_file_name", "demo_file_path", "sort_order", "created_at", "updated_at"],
-  risks: ["id", "feature_id", "name", "description", "goal", "observation_options_json", "demo_file_name", "demo_file_path", "sort_order", "created_at", "updated_at"],
+  features: ["id", "name", "additional_context", "demonstration", "sort_order", "created_at", "updated_at"],
+  risks: ["id", "feature_id", "name", "description", "goal", "observation_options_json", "demonstration", "sort_order", "created_at", "updated_at"],
   findings: ["id", "app_id", "feature_id", "risk_id", "result_status", "result_observations_json", "note", "elaboration", "metadata", "observation_summary", "demo_file_name", "demo_file_path", "created_at", "updated_at"],
 };
 
@@ -140,8 +140,7 @@ function captureCurrentSnapshot(db) {
       id,
       ${hasColumn(db, "features", "name") ? "name" : "description AS name"},
       ${sqlColumnOrFallback(db, "features", "additional_context", "NULL")},
-      ${sqlColumnOrFallback(db, "features", "demo_file_name", "NULL")},
-      ${sqlColumnOrFallback(db, "features", "demo_file_path", "NULL")},
+      ${sqlColumnOrFallback(db, "features", "demonstration", "NULL")},
       ${sqlColumnOrFallback(db, "features", "sort_order", "0")},
       ${sqlColumnOrFallback(db, "features", "created_at", "datetime('now')")},
       ${sqlColumnOrFallback(db, "features", "updated_at", "datetime('now')")}
@@ -159,8 +158,7 @@ function captureCurrentSnapshot(db) {
       ${sqlColumnOrFallback(db, "risks", "goal", "NULL")},
       ${sqlColumnOrFallback(db, "risks", "consequence", "NULL")},
       ${sqlColumnOrFallback(db, "risks", "observation_options_json", quoteSqlString(JSON.stringify(EMPTY_OBSERVATION_OPTIONS)))},
-      ${sqlColumnOrFallback(db, "risks", "demo_file_name", "NULL")},
-      ${sqlColumnOrFallback(db, "risks", "demo_file_path", "NULL")},
+      ${sqlColumnOrFallback(db, "risks", "demonstration", "NULL")},
       ${sqlColumnOrFallback(db, "risks", "sort_order", "0")},
       ${sqlColumnOrFallback(db, "risks", "created_at", "datetime('now')")},
       ${sqlColumnOrFallback(db, "risks", "updated_at", "datetime('now')")}
@@ -297,8 +295,7 @@ function captureCurrentSnapshot(db) {
       id: row.id,
       name: row.name,
       additionalContext: row.additional_context || "",
-      demoFileName: row.demo_file_name || null,
-      demoFilePath: row.demo_file_path || null,
+      demonstration: row.demonstration || null,
       sortOrder: Number(row.sort_order ?? index),
       createdAt: row.created_at || new Date().toISOString(),
       updatedAt: row.updated_at || row.created_at || new Date().toISOString(),
@@ -312,8 +309,7 @@ function captureCurrentSnapshot(db) {
         description: inferRiskDescription(row, reference),
         goal: inferRiskGoal(row, reference),
         observationOptions: normalizeRiskObservationOptions(row.observation_options_json, reference),
-        demoFileName: row.demo_file_name || null,
-        demoFilePath: row.demo_file_path || null,
+        demonstration: row.demonstration || null,
         sortOrder: Number(row.sort_order ?? index),
         createdAt: row.created_at || new Date().toISOString(),
         updatedAt: row.updated_at || row.created_at || new Date().toISOString(),
@@ -333,16 +329,16 @@ function insertSnapshot(db, snapshot) {
   `);
   const insertFeature = db.prepare(`
     INSERT INTO features (
-      id, name, additional_context, demo_file_name, demo_file_path, sort_order, created_at, updated_at
+      id, name, additional_context, demonstration, sort_order, created_at, updated_at
     ) VALUES (
-      @id, @name, @additional_context, @demo_file_name, @demo_file_path, @sort_order, @created_at, @updated_at
+      @id, @name, @additional_context, @demonstration, @sort_order, @created_at, @updated_at
     )
   `);
   const insertRisk = db.prepare(`
     INSERT INTO risks (
-      id, feature_id, name, description, goal, observation_options_json, demo_file_name, demo_file_path, sort_order, created_at, updated_at
+      id, feature_id, name, description, goal, observation_options_json, demonstration, sort_order, created_at, updated_at
     ) VALUES (
-      @id, @feature_id, @name, @description, @goal, @observation_options_json, @demo_file_name, @demo_file_path, @sort_order, @created_at, @updated_at
+      @id, @feature_id, @name, @description, @goal, @observation_options_json, @demonstration, @sort_order, @created_at, @updated_at
     )
   `);
   const insertFinding = db.prepare(`
@@ -378,8 +374,7 @@ function insertSnapshot(db, snapshot) {
         id: feature.id,
         name: feature.name,
         additional_context: feature.additionalContext || "",
-        demo_file_name: feature.demoFileName || null,
-        demo_file_path: feature.demoFilePath || null,
+        demonstration: feature.demonstration || null,
         sort_order: Number(feature.sortOrder ?? index),
         created_at: feature.createdAt || new Date().toISOString(),
         updated_at: feature.updatedAt || feature.createdAt || new Date().toISOString(),
@@ -396,8 +391,7 @@ function insertSnapshot(db, snapshot) {
         description: risk.description,
         goal: risk.goal || "",
         observation_options_json: JSON.stringify(normalizeObservationOptions(risk.observationOptions, EMPTY_OBSERVATION_OPTIONS)),
-        demo_file_name: risk.demoFileName || null,
-        demo_file_path: risk.demoFilePath || null,
+        demonstration: risk.demonstration || null,
         sort_order: Number(risk.sortOrder ?? index),
         created_at: risk.createdAt || new Date().toISOString(),
         updated_at: risk.updatedAt || risk.createdAt || new Date().toISOString(),
@@ -450,8 +444,7 @@ export function createTables(db) {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       additional_context TEXT,
-      demo_file_name TEXT,
-      demo_file_path TEXT,
+      demonstration TEXT,
       sort_order INTEGER NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -464,8 +457,7 @@ export function createTables(db) {
       description TEXT NOT NULL,
       goal TEXT NOT NULL,
       observation_options_json TEXT NOT NULL,
-      demo_file_name TEXT,
-      demo_file_path TEXT,
+      demonstration TEXT,
       sort_order INTEGER NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -505,8 +497,7 @@ export function ensureCurrentSchemaColumns(db) {
   ensureColumn(db, "apps", "updated_at", "TEXT NOT NULL DEFAULT (datetime('now'))");
 
   ensureColumn(db, "features", "additional_context", "TEXT");
-  ensureColumn(db, "features", "demo_file_name", "TEXT");
-  ensureColumn(db, "features", "demo_file_path", "TEXT");
+  ensureColumn(db, "features", "demonstration", "TEXT");
   ensureColumn(db, "features", "sort_order", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(db, "features", "created_at", "TEXT NOT NULL DEFAULT (datetime('now'))");
   ensureColumn(db, "features", "updated_at", "TEXT NOT NULL DEFAULT (datetime('now'))");
@@ -515,8 +506,7 @@ export function ensureCurrentSchemaColumns(db) {
   ensureColumn(db, "risks", "description", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "risks", "goal", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "risks", "observation_options_json", `TEXT NOT NULL DEFAULT '${JSON.stringify(EMPTY_OBSERVATION_OPTIONS)}'`);
-  ensureColumn(db, "risks", "demo_file_name", "TEXT");
-  ensureColumn(db, "risks", "demo_file_path", "TEXT");
+  ensureColumn(db, "risks", "demonstration", "TEXT");
   ensureColumn(db, "risks", "sort_order", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(db, "risks", "created_at", "TEXT NOT NULL DEFAULT (datetime('now'))");
   ensureColumn(db, "risks", "updated_at", "TEXT NOT NULL DEFAULT (datetime('now'))");
@@ -653,8 +643,7 @@ export function seedDefaultsIfEmpty(db) {
     id: feature.id,
     name: feature.name,
     additionalContext: feature.additionalContext,
-    demoFileName: null,
-    demoFilePath: null,
+    demonstration: null,
     sortOrder: feature.sortOrder,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -666,8 +655,7 @@ export function seedDefaultsIfEmpty(db) {
     description: risk.description,
     goal: risk.goal,
     observationOptions: risk.observationOptions,
-    demoFileName: null,
-    demoFilePath: null,
+    demonstration: null,
     sortOrder: risk.sortOrder,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),

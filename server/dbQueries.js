@@ -19,6 +19,7 @@ import {
   parseJsonOrDefault,
   parseRiskIdentifier,
   persistDemoFile,
+  persistDemonstrationJson,
   toDashboardStatusTuple,
   toPlatformFeatureSlug,
   toRiskSlug,
@@ -76,7 +77,7 @@ function validateObservationSelection(riskRow, resultStatus, selectedObservation
 
 export function getDashboardData(db) {
   const featureRows = db.prepare(`
-    SELECT id, name, additional_context, demo_file_name, demo_file_path, created_at
+    SELECT id, name, additional_context, demonstration, created_at
     FROM features
     ORDER BY sort_order ASC, id ASC
   `).all();
@@ -128,8 +129,7 @@ export function getDashboardData(db) {
       id: row.id,
       name: row.name,
       additionalContext: row.additional_context || "",
-      demoFileName: row.demo_file_name || null,
-      demoFilePath: row.demo_file_path || null,
+      demonstration: row.demonstration ? JSON.parse(row.demonstration) : null,
       createdAt: row.created_at,
     })),
     risks: riskRows.map((row) => ({
@@ -198,32 +198,24 @@ export function createPlatformFeature(db, payload) {
     fail(`Platform feature ${toPlatformFeatureSlug(normalizedFeatureId)} already exists.`, 409);
   }
 
-  const storedDemo = persistDemoFile(payload);
-  try {
-    const timestamp = new Date().toISOString();
-    const nextSort = db.prepare("SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM features").get().next;
-    db.prepare(`
-      INSERT INTO features (id, name, additional_context, demo_file_name, demo_file_path, sort_order, created_at, updated_at)
-      VALUES (@id, @name, @additional_context, @demo_file_name, @demo_file_path, @sort_order, @created_at, @updated_at)
-    `).run({
-      id: normalizedFeatureId,
-      name,
-      additional_context: additionalContext || null,
-      demo_file_name: storedDemo.demoFileName,
-      demo_file_path: storedDemo.demoFilePath,
-      sort_order: nextSort,
-      created_at: timestamp,
-      updated_at: timestamp,
-    });
-  } catch (error) {
-    if (storedDemo.absolutePath && fs.existsSync(storedDemo.absolutePath)) {
-      fs.unlinkSync(storedDemo.absolutePath);
-    }
-    throw error;
-  }
+  const demonstrationJson = persistDemonstrationJson(payload.demonstration, normalizedFeatureId);
+  const timestamp = new Date().toISOString();
+  const nextSort = db.prepare("SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM features").get().next;
+  db.prepare(`
+    INSERT INTO features (id, name, additional_context, demonstration, sort_order, created_at, updated_at)
+    VALUES (@id, @name, @additional_context, @demonstration, @sort_order, @created_at, @updated_at)
+  `).run({
+    id: normalizedFeatureId,
+    name,
+    additional_context: additionalContext || null,
+    demonstration: demonstrationJson,
+    sort_order: nextSort,
+    created_at: timestamp,
+    updated_at: timestamp,
+  });
 
   const created = db.prepare(`
-    SELECT id, name, additional_context, demo_file_name, demo_file_path, created_at
+    SELECT id, name, additional_context, demonstration, created_at
     FROM features
     WHERE id = ?
   `).get(normalizedFeatureId);
@@ -279,32 +271,30 @@ export function createRisk(db, payload) {
   }
 
   const appRows = db.prepare("SELECT id, name, app_version FROM apps ORDER BY sort_order ASC, id ASC").all();
-  const storedDemo = persistDemoFile(payload);
-  try {
-    db.transaction(() => {
-      const timestamp = new Date().toISOString();
-      const nextSort = db.prepare("SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM risks").get().next;
-      db.prepare(`
-        INSERT INTO risks (
-          id, feature_id, name, description, goal, observation_options_json,
-          demo_file_name, demo_file_path, sort_order, created_at, updated_at
-        ) VALUES (
-          @id, @feature_id, @name, @description, @goal, @observation_options_json,
-          @demo_file_name, @demo_file_path, @sort_order, @created_at, @updated_at
-        )
-      `).run({
-        id: riskId,
-        feature_id: featureId,
-        name,
-        description,
-        goal,
-        observation_options_json: JSON.stringify(observationOptions),
-        demo_file_name: storedDemo.demoFileName,
-        demo_file_path: storedDemo.demoFilePath,
-        sort_order: nextSort,
-        created_at: timestamp,
-        updated_at: timestamp,
-      });
+  const demonstrationJson = persistDemonstrationJson(payload.demonstration, riskId);
+  db.transaction(() => {
+    const timestamp = new Date().toISOString();
+    const nextSort = db.prepare("SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM risks").get().next;
+    db.prepare(`
+      INSERT INTO risks (
+        id, feature_id, name, description, goal, observation_options_json,
+        demonstration, sort_order, created_at, updated_at
+      ) VALUES (
+        @id, @feature_id, @name, @description, @goal, @observation_options_json,
+        @demonstration, @sort_order, @created_at, @updated_at
+      )
+    `).run({
+      id: riskId,
+      feature_id: featureId,
+      name,
+      description,
+      goal,
+      observation_options_json: JSON.stringify(observationOptions),
+      demonstration: demonstrationJson,
+      sort_order: nextSort,
+      created_at: timestamp,
+      updated_at: timestamp,
+    });
 
       const insertPendingFinding = db.prepare(`
         INSERT INTO findings (
@@ -328,15 +318,9 @@ export function createRisk(db, payload) {
         });
       });
     })();
-  } catch (error) {
-    if (storedDemo.absolutePath && fs.existsSync(storedDemo.absolutePath)) {
-      fs.unlinkSync(storedDemo.absolutePath);
-    }
-    throw error;
-  }
 
   const created = db.prepare(`
-    SELECT id, feature_id, name, description, goal, observation_options_json, demo_file_name, demo_file_path, sort_order
+    SELECT id, feature_id, name, description, goal, observation_options_json, demonstration, sort_order
     FROM risks
     WHERE id = ?
   `).get(riskId);
@@ -590,6 +574,53 @@ export function updateRiskText(db, riskId, patch) {
     FROM risks
     WHERE id = ?
   `).get(riskId);
+}
+
+export function updatePlatformFeature(db, featureId, payload) {
+  const normalizedFeatureId = normalizePlatformFeatureId(featureId);
+
+  const fail = (message, status = 400) => {
+    const error = new Error(message);
+    error.status = status;
+    throw error;
+  };
+
+  if (!normalizedFeatureId) {
+    fail("`platformFeatureId` must follow PF-XX or platform-feature-XX format.");
+  }
+
+  const exists = db.prepare("SELECT 1 FROM features WHERE id = ?").get(normalizedFeatureId);
+  if (!exists) {
+    fail(`Platform feature ${toPlatformFeatureSlug(normalizedFeatureId)} not found.`, 404);
+  }
+
+  const name = String(payload.name || payload.description || "").trim();
+  const additionalContext = String(payload.additionalContext || "").trim();
+  if (!name) {
+    fail("`name` is required.");
+  }
+
+  const demonstrationJson = persistDemonstrationJson(payload.demonstration, normalizedFeatureId);
+  const timestamp = new Date().toISOString();
+
+  db.prepare(`
+    UPDATE features
+    SET name = @name, additional_context = @additional_context, demonstration = @demonstration, updated_at = @updated_at
+    WHERE id = @id
+  `).run({
+    id: normalizedFeatureId,
+    name,
+    additional_context: additionalContext || null,
+    demonstration: demonstrationJson,
+    updated_at: timestamp,
+  });
+
+  const updated = db.prepare(`
+    SELECT id, name, additional_context, demonstration, created_at, updated_at
+    FROM features WHERE id = ?
+  `).get(normalizedFeatureId);
+
+  return { ...updated, publicId: toPlatformFeatureSlug(updated.id) };
 }
 
 export function deletePlatformFeature(db, featureId) {

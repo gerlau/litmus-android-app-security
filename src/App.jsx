@@ -907,17 +907,22 @@ export default function Dashboard() {
   const [apfId, setApfId] = useState("");
   const [apfDescription, setApfDescription] = useState("");
   const [apfAdditionalContext, setApfAdditionalContext] = useState("");
-  const [apfDemoFile, setApfDemoFile] = useState(null);
+  const [apfDemoTable, setApfDemoTable] = useState([{ config: "", detail: "" }]);
+  const [apfDemoSteps, setApfDemoSteps] = useState([{ text: "", imageFile: null, imagePreviewUrl: null }]);
+  const [apfDeleteConfirm, setApfDeleteConfirm] = useState("");
+  const [apfActionResult, setApfActionResult] = useState(null); // "created" | "updated" | "deleted"
   const [apfSubmitted, setApfSubmitted] = useState(false);
   const [riskDrafts, setRiskDrafts] = useState([]);
   const [selectedPf, setSelectedPf] = useState(null);
   const afPrefilledAppNameRef = React.useRef(null);
+  const apfPrefilledIdRef = React.useRef(null);
 
   const createRiskDraft = () => ({
     key: `risk-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     riskId: "",
     description: "",
-    demoFile: null,
+    demoTable: [{ config: "", detail: "" }],
+    demoSteps: [{ text: "", imageFile: null, imagePreviewUrl: null }],
     atRiskObservationsText: "",
     notAtRiskObservationsText: "",
   });
@@ -1147,6 +1152,11 @@ export default function Dashboard() {
     return apps.find((app) => app.name === appOrName)?.appVersion || null;
   };
   const existingAppMatch = apps.find((app) => app.name.toLowerCase() === afAppName.trim().toLowerCase()) || null;
+  const existingPfMatch = (() => {
+    const normalizedInput = normalizePlatformFeatureInput(apfId);
+    if (!normalizedInput) return null;
+    return platformFeatures.find((pf) => pf.id === normalizedInput) || null;
+  })();
   const pendingAssessmentRiskIds = new Set(
     existingAppMatch
       ? risks
@@ -1208,6 +1218,36 @@ export default function Dashboard() {
     });
     setAfObservations(nextObservations);
   }, [existingAppMatch]);
+
+  useEffect(() => {
+    if (!existingPfMatch) {
+      apfPrefilledIdRef.current = null;
+      return;
+    }
+    if (apfPrefilledIdRef.current === existingPfMatch.id) return;
+    apfPrefilledIdRef.current = existingPfMatch.id;
+
+    setApfDescription(existingPfMatch.name || "");
+    setApfAdditionalContext(existingPfMatch.additionalContext || "");
+
+    const blocks = existingPfMatch.demonstration?.demonstration;
+    if (Array.isArray(blocks) && blocks.length > 0) {
+      const tableBlock = blocks.find((b) => b.type === "table");
+      const stepsBlock = blocks.find((b) => b.type === "steps");
+      setApfDemoTable(
+        tableBlock?.rows?.map((r) => ({ config: r.Configuration || "", detail: r.Detail || "" }))
+        ?? [{ config: "", detail: "" }]
+      );
+      setApfDemoSteps(
+        stepsBlock?.items?.map((item) => ({ text: item.text || "", imageFile: null, imagePreviewUrl: null }))
+        ?? [{ text: "", imageFile: null, imagePreviewUrl: null }]
+      );
+    } else {
+      setApfDemoTable([{ config: "", detail: "" }]);
+      setApfDemoSteps([{ text: "", imageFile: null, imagePreviewUrl: null }]);
+    }
+    setApfSubmitted(false);
+  }, [existingPfMatch]);
 
   const tabStyle = (t) => ({
     padding: "12px 24px", fontSize: 14, fontWeight: 600, cursor: "pointer",
@@ -1350,7 +1390,7 @@ export default function Dashboard() {
           <div style={{ display: "flex", gap: 4, marginTop: 0 }}>
             <button onClick={() => setTab("deepdive")} style={tabStyle("deepdive")}>Deep Dive</button>
             <button onClick={() => setTab("addfindings")} style={tabStyle("addfindings")}>Findings</button>
-            <button onClick={() => setTab("addrisk")} style={tabStyle("addrisk")}>Platform Features / Risks</button>
+            <button onClick={() => setTab("addrisk")} style={tabStyle("addrisk")}>Features</button>
           </div>
         </div>
       </div>
@@ -1437,7 +1477,7 @@ export default function Dashboard() {
                   <ResponsiveContainer width="100%" height={520}>
                     <BarChart data={rankingData} layout="vertical" margin={{ top: 20, right: 140, left: 0, bottom: 0 }} barSize={22}>
                       <XAxis type="number" domain={[0, totalRisks]} ticks={scoreAxisTicks} tick={{ fontSize: 12, fill: "#9ca3af" }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v} Risks`} />
-                      <ReferenceLine x={5} stroke="#6b7280" strokeDasharray="6 3" strokeWidth={1.5} label={({ viewBox }) => (<text x={viewBox.x} y={viewBox.y - 6} textAnchor="middle" fontSize={11} fontWeight={800} fill="#374151">Desired Outcome</text>)} />
+                      <ReferenceLine x={4} stroke="#6b7280" strokeDasharray="6 3" strokeWidth={1.5} label={({ viewBox }) => (<text x={viewBox.x} y={viewBox.y - 6} textAnchor="middle" fontSize={11} fontWeight={800} fill="#374151">Desired Outcome</text>)} />
                       <Tooltip contentStyle={{ fontSize: 13, borderRadius: 8, border: "1px solid #e5e7eb" }} formatter={(v) => [`${v} / ${totalRisks} gaps`, "Risk Score"]} />
                       <YAxis type="category" dataKey="name" width={110} axisLine={false} tickLine={false}
                         tick={({ x, y, payload }) => {
@@ -2244,18 +2284,24 @@ export default function Dashboard() {
             <div style={{ width: "100%", maxWidth: 900, margin: "0 auto", display: "flex", flexDirection: "column", gap: 16 }}>
               <div style={{ background: "#fff", borderRadius: 16, padding: "20px 24px", border: "1px solid #e5e7eb", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
                 <div style={{ fontSize: 15, fontWeight: 700, color: "#111827", marginBottom: 14 }}>
-                  1. Add Platform Feature
+                  1. Add feature
                 </div>
-                {apfSubmitted && (
+                {apfSubmitted && apfActionResult === "deleted" && (
+                  <div style={{ marginBottom: 14, padding: "10px 12px", borderRadius: 8, background: "#fef2f2", border: "1px solid #fca5a5", fontSize: 12, color: "#b91c1c", fontWeight: 600 }}>
+                    Platform feature deleted successfully.
+                  </div>
+                )}
+                {apfSubmitted && apfActionResult !== "deleted" && (
                   <div style={{ marginBottom: 14, padding: "10px 12px", borderRadius: 8, background: "#ecfdf5", border: "1px solid #a7f3d0", fontSize: 12, color: "#065f46", fontWeight: 600 }}>
-                    Platform feature saved successfully.
+                    {apfActionResult === "created" ? "Platform feature saved successfully." : "Platform feature updated successfully."}
                   </div>
                 )}
                 <div style={{ marginBottom: 10 }}>
-                  <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 5 }}>Platform Feature ID</div>
+                  <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 5 }}>Feature ID</div>
                   <input
                     type="text"
                     value={apfId}
+                    list="existing-platform-features"
                     onChange={(e) => {
                       setApfId(e.target.value);
                       setApfSubmitted(false);
@@ -2263,6 +2309,16 @@ export default function Dashboard() {
                     placeholder="e.g. PF-08 or platform-feature-08"
                     style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: "1.5px solid #e5e7eb", fontSize: 13, color: "#374151", fontFamily: "'Inter', system-ui, sans-serif", outline: "none", boxSizing: "border-box" }}
                   />
+                  <datalist id="existing-platform-features">
+                    {platformFeatures.map((pf) => (
+                      <option key={pf.id} value={pf.id}>{pf.name}</option>
+                    ))}
+                  </datalist>
+                  {existingPfMatch && (
+                    <div style={{ marginTop: 6, fontSize: 11, color: "#6b7280" }}>
+                      Editing existing feature: <span style={{ fontWeight: 700, color: "#374151" }}>{existingPfMatch.name}</span>. Fields are preloaded from the database.
+                    </div>
+                  )}
                 </div>
                 <div style={{ marginBottom: 10 }}>
                   <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 5 }}>Description</div>
@@ -2289,26 +2345,126 @@ export default function Dashboard() {
                   />
                 </div>
                 <div style={{ marginBottom: 14 }}>
-                  <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 5 }}>Additional Context + Demo (PDF or DOCX)</div>
-                  <input
-                    type="file"
-                    accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                    onChange={(e) => {
-                      setApfDemoFile(e.target.files?.[0] || null);
-                      setApfSubmitted(false);
-                    }}
-                    style={{ width: "100%", fontSize: 12, color: "#374151" }}
-                  />
-                  {apfDemoFile && (
-                    <div style={{ marginTop: 6, fontSize: 11, color: "#6b7280" }}>
-                      Selected: {apfDemoFile.name}
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#374151", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>Demonstration</div>
+
+                  {/* Configuration Table */}
+                  {apfDemoTable.length > 0 && (
+                    <div style={{ marginBottom: 8, overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                        <thead>
+                          <tr>
+                            <th style={{ textAlign: "left", padding: "6px 10px", background: "#f3f4f6", border: "1px solid #e5e7eb", fontWeight: 600, color: "#374151" }}>Configuration</th>
+                            <th style={{ textAlign: "left", padding: "6px 10px", background: "#f3f4f6", border: "1px solid #e5e7eb", fontWeight: 600, color: "#374151" }}>Detail</th>
+                            <th style={{ width: 28, background: "#f3f4f6", border: "1px solid #e5e7eb" }}></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {apfDemoTable.map((row, i) => (
+                            <tr key={i}>
+                              <td style={{ border: "1px solid #e5e7eb", padding: 4 }}>
+                                <input
+                                  value={row.config}
+                                  onChange={(e) => {
+                                    const v = e.target.value;
+                                    setApfDemoTable((prev) => prev.map((r, idx) => idx === i ? { ...r, config: v } : r));
+                                    setApfSubmitted(false);
+                                  }}
+                                  placeholder="Configuration"
+                                  style={{ width: "100%", border: "none", outline: "none", fontSize: 12, color: "#374151", background: "transparent", padding: "2px 4px", boxSizing: "border-box" }}
+                                />
+                              </td>
+                              <td style={{ border: "1px solid #e5e7eb", padding: 4 }}>
+                                <input
+                                  value={row.detail}
+                                  onChange={(e) => {
+                                    const v = e.target.value;
+                                    setApfDemoTable((prev) => prev.map((r, idx) => idx === i ? { ...r, detail: v } : r));
+                                    setApfSubmitted(false);
+                                  }}
+                                  placeholder="Detail"
+                                  style={{ width: "100%", border: "none", outline: "none", fontSize: 12, color: "#374151", background: "transparent", padding: "2px 4px", boxSizing: "border-box" }}
+                                />
+                              </td>
+                              <td style={{ border: "1px solid #e5e7eb", textAlign: "center", padding: 4 }}>
+                                <button
+                                  onClick={() => {
+                                    setApfDemoTable((prev) => prev.filter((_, idx) => idx !== i));
+                                    setApfSubmitted(false);
+                                  }}
+                                  style={{ border: "none", background: "none", color: "#b91c1c", fontSize: 14, cursor: "pointer", padding: 0, fontWeight: 700 }}
+                                >×</button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   )}
+                  <button
+                    onClick={() => {
+                      setApfDemoTable((prev) => [...prev, { config: "", detail: "" }]);
+                      setApfSubmitted(false);
+                    }}
+                    style={{ fontSize: 11, color: "#374151", background: "#f3f4f6", border: "1px solid #e5e7eb", borderRadius: 6, padding: "4px 10px", cursor: "pointer", marginBottom: 12, fontWeight: 600 }}
+                  >+ Add Row</button>
+
+                  {/* Steps */}
+                  {apfDemoSteps.length > 0 && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 8 }}>
+                      {apfDemoSteps.map((step, i) => (
+                        <div key={i} style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: "10px 12px", background: "#fafafa" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: "#374151" }}>Step {i + 1}</div>
+                            <button
+                              onClick={() => {
+                                if (step.imagePreviewUrl) URL.revokeObjectURL(step.imagePreviewUrl);
+                                setApfDemoSteps((prev) => prev.filter((_, idx) => idx !== i));
+                                setApfSubmitted(false);
+                              }}
+                              style={{ border: "none", background: "none", color: "#b91c1c", fontSize: 11, fontWeight: 700, cursor: "pointer", padding: 0 }}
+                            >REMOVE</button>
+                          </div>
+                          <textarea
+                            value={step.text}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setApfDemoSteps((prev) => prev.map((s, idx) => idx === i ? { ...s, text: v } : s));
+                              setApfSubmitted(false);
+                            }}
+                            placeholder="Step description"
+                            style={{ width: "100%", minHeight: 60, padding: "8px 10px", borderRadius: 6, border: "1.5px solid #e5e7eb", fontSize: 12, lineHeight: 1.5, color: "#374151", fontFamily: "'Inter', system-ui, sans-serif", resize: "vertical", outline: "none", boxSizing: "border-box", marginBottom: 8 }}
+                          />
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0] || null;
+                              if (step.imagePreviewUrl) URL.revokeObjectURL(step.imagePreviewUrl);
+                              const previewUrl = file ? URL.createObjectURL(file) : null;
+                              setApfDemoSteps((prev) => prev.map((s, idx) => idx === i ? { ...s, imageFile: file, imagePreviewUrl: previewUrl } : s));
+                              setApfSubmitted(false);
+                            }}
+                            style={{ fontSize: 11, color: "#374151" }}
+                          />
+                          {step.imagePreviewUrl && (
+                            <img src={step.imagePreviewUrl} alt={`Step ${i + 1}`} style={{ maxWidth: "100%", maxHeight: 200, borderRadius: 6, border: "1px solid #e5e7eb", display: "block", marginTop: 8 }} />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <button
+                    onClick={() => {
+                      setApfDemoSteps((prev) => [...prev, { text: "", imageFile: null, imagePreviewUrl: null }]);
+                      setApfSubmitted(false);
+                    }}
+                    style={{ fontSize: 11, color: "#374151", background: "#f3f4f6", border: "1px solid #e5e7eb", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontWeight: 600 }}
+                  >+ Add Step</button>
                 </div>
                 {riskDrafts.length > 0 && (
                   <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid #e5e7eb" }}>
                     <div style={{ fontSize: 15, fontWeight: 700, color: "#111827", marginBottom: 14 }}>
-                      2. Add Risk
+                      2. Add risk
                     </div>
                     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                       {riskDrafts.map((draft, index) => {
@@ -2363,25 +2519,154 @@ export default function Dashboard() {
                                 style={{ width: "100%", minHeight: 80, padding: "10px 12px", borderRadius: 8, border: "1.5px solid #e5e7eb", fontSize: 13, lineHeight: 1.5, color: "#374151", fontFamily: "'Inter', system-ui, sans-serif", resize: "vertical", outline: "none", boxSizing: "border-box" }}
                               />
                             </div>
-                            <div>
-                              <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 5 }}>Demo (PDF or DOCX)</div>
-                              <input
-                                type="file"
-                                accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                                onChange={(e) => {
-                                  const nextFile = e.target.files?.[0] || null;
+                            <div style={{ marginTop: 10 }}>
+                              <div style={{ fontSize: 12, fontWeight: 700, color: "#374151", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>Demo (PDF or DOCX)</div>
+
+                              {/* Configuration Table */}
+                              {draft.demoTable.length > 0 && (
+                                <div style={{ marginBottom: 8, overflowX: "auto" }}>
+                                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                                    <thead>
+                                      <tr>
+                                        <th style={{ textAlign: "left", padding: "6px 10px", background: "#f3f4f6", border: "1px solid #e5e7eb", fontWeight: 600, color: "#374151" }}>Configuration</th>
+                                        <th style={{ textAlign: "left", padding: "6px 10px", background: "#f3f4f6", border: "1px solid #e5e7eb", fontWeight: 600, color: "#374151" }}>Detail</th>
+                                        <th style={{ width: 28, background: "#f3f4f6", border: "1px solid #e5e7eb" }}></th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {draft.demoTable.map((row, i) => (
+                                        <tr key={i}>
+                                          <td style={{ border: "1px solid #e5e7eb", padding: 4 }}>
+                                            <input
+                                              value={row.config}
+                                              onChange={(e) => {
+                                                const v = e.target.value;
+                                                setRiskDrafts((prev) => prev.map((item) => (
+                                                  item.key === draft.key
+                                                    ? { ...item, demoTable: item.demoTable.map((r, idx) => idx === i ? { ...r, config: v } : r) }
+                                                    : item
+                                                )));
+                                                setApfSubmitted(false);
+                                              }}
+                                              placeholder="Configuration"
+                                              style={{ width: "100%", border: "none", outline: "none", fontSize: 12, color: "#374151", background: "transparent", padding: "2px 4px", boxSizing: "border-box" }}
+                                            />
+                                          </td>
+                                          <td style={{ border: "1px solid #e5e7eb", padding: 4 }}>
+                                            <input
+                                              value={row.detail}
+                                              onChange={(e) => {
+                                                const v = e.target.value;
+                                                setRiskDrafts((prev) => prev.map((item) => (
+                                                  item.key === draft.key
+                                                    ? { ...item, demoTable: item.demoTable.map((r, idx) => idx === i ? { ...r, detail: v } : r) }
+                                                    : item
+                                                )));
+                                                setApfSubmitted(false);
+                                              }}
+                                              placeholder="Detail"
+                                              style={{ width: "100%", border: "none", outline: "none", fontSize: 12, color: "#374151", background: "transparent", padding: "2px 4px", boxSizing: "border-box" }}
+                                            />
+                                          </td>
+                                          <td style={{ border: "1px solid #e5e7eb", textAlign: "center", padding: 4 }}>
+                                            <button
+                                              onClick={() => {
+                                                setRiskDrafts((prev) => prev.map((item) => (
+                                                  item.key === draft.key
+                                                    ? { ...item, demoTable: item.demoTable.filter((_, idx) => idx !== i) }
+                                                    : item
+                                                )));
+                                                setApfSubmitted(false);
+                                              }}
+                                              style={{ border: "none", background: "none", color: "#b91c1c", fontSize: 14, cursor: "pointer", padding: 0, fontWeight: 700 }}
+                                            >×</button>
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )}
+                              <button
+                                onClick={() => {
                                   setRiskDrafts((prev) => prev.map((item) => (
-                                    item.key === draft.key ? { ...item, demoFile: nextFile } : item
+                                    item.key === draft.key
+                                      ? { ...item, demoTable: [...item.demoTable, { config: "", detail: "" }] }
+                                      : item
                                   )));
                                   setApfSubmitted(false);
                                 }}
-                                style={{ width: "100%", fontSize: 12, color: "#374151" }}
-                              />
-                              {draft.demoFile && (
-                                <div style={{ marginTop: 6, fontSize: 11, color: "#6b7280" }}>
-                                  Selected: {draft.demoFile.name}
+                                style={{ fontSize: 11, color: "#374151", background: "#f3f4f6", border: "1px solid #e5e7eb", borderRadius: 6, padding: "4px 10px", cursor: "pointer", marginBottom: 12, fontWeight: 600 }}
+                              >+ Add Row</button>
+
+                              {/* Steps */}
+                              {draft.demoSteps.length > 0 && (
+                                <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 8 }}>
+                                  {draft.demoSteps.map((step, i) => (
+                                    <div key={i} style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: "10px 12px", background: "#f9fafb" }}>
+                                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                                        <div style={{ fontSize: 12, fontWeight: 700, color: "#374151" }}>Step {i + 1}</div>
+                                        <button
+                                          onClick={() => {
+                                            if (step.imagePreviewUrl) URL.revokeObjectURL(step.imagePreviewUrl);
+                                            setRiskDrafts((prev) => prev.map((item) => (
+                                              item.key === draft.key
+                                                ? { ...item, demoSteps: item.demoSteps.filter((_, idx) => idx !== i) }
+                                                : item
+                                            )));
+                                            setApfSubmitted(false);
+                                          }}
+                                          style={{ border: "none", background: "none", color: "#b91c1c", fontSize: 11, fontWeight: 700, cursor: "pointer", padding: 0 }}
+                                        >REMOVE</button>
+                                      </div>
+                                      <textarea
+                                        value={step.text}
+                                        onChange={(e) => {
+                                          const v = e.target.value;
+                                          setRiskDrafts((prev) => prev.map((item) => (
+                                            item.key === draft.key
+                                              ? { ...item, demoSteps: item.demoSteps.map((s, idx) => idx === i ? { ...s, text: v } : s) }
+                                              : item
+                                          )));
+                                          setApfSubmitted(false);
+                                        }}
+                                        placeholder="Step description"
+                                        style={{ width: "100%", minHeight: 60, padding: "8px 10px", borderRadius: 6, border: "1.5px solid #e5e7eb", fontSize: 12, lineHeight: 1.5, color: "#374151", fontFamily: "'Inter', system-ui, sans-serif", resize: "vertical", outline: "none", boxSizing: "border-box", marginBottom: 8 }}
+                                      />
+                                      <input
+                                        type="file"
+                                        accept="image/*"
+                                        onChange={(e) => {
+                                          const file = e.target.files?.[0] || null;
+                                          if (step.imagePreviewUrl) URL.revokeObjectURL(step.imagePreviewUrl);
+                                          const previewUrl = file ? URL.createObjectURL(file) : null;
+                                          setRiskDrafts((prev) => prev.map((item) => (
+                                            item.key === draft.key
+                                              ? { ...item, demoSteps: item.demoSteps.map((s, idx) => idx === i ? { ...s, imageFile: file, imagePreviewUrl: previewUrl } : s) }
+                                              : item
+                                          )));
+                                          setApfSubmitted(false);
+                                        }}
+                                        style={{ fontSize: 11, color: "#374151" }}
+                                      />
+                                      {step.imagePreviewUrl && (
+                                        <img src={step.imagePreviewUrl} alt={`Step ${i + 1}`} style={{ maxWidth: "100%", maxHeight: 200, borderRadius: 6, border: "1px solid #e5e7eb", display: "block", marginTop: 8 }} />
+                                      )}
+                                    </div>
+                                  ))}
                                 </div>
                               )}
+                              <button
+                                onClick={() => {
+                                  setRiskDrafts((prev) => prev.map((item) => (
+                                    item.key === draft.key
+                                      ? { ...item, demoSteps: [...item.demoSteps, { text: "", imageFile: null, imagePreviewUrl: null }] }
+                                      : item
+                                  )));
+                                  setApfSubmitted(false);
+                                }}
+                                style={{ fontSize: 11, color: "#374151", background: "#f3f4f6", border: "1px solid #e5e7eb", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontWeight: 600 }}
+                              >+ Add Step</button>
                             </div>
                             <div style={{ marginTop: 10 }}>
                               <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 5 }}>At Risk Observations</div>
@@ -2456,19 +2741,54 @@ export default function Dashboard() {
                       return;
                     }
                     const existingPlatformFeature = platformFeatures.find((pf) => pf.id === normalizedPfId) || null;
-                    if (existingPlatformFeature && riskDrafts.length === 0) {
-                      alert(`Platform feature ${normalizedPfId} already exists.`);
-                      return;
-                    }
 
                     try {
-                      let demoFileContentBase64 = "";
-                      if (apfDemoFile) {
-                        demoFileContentBase64 = await readFileAsBase64(apfDemoFile);
+                      // Build demonstration blocks
+                      const demonstration = [];
+                      const filledRows = apfDemoTable.filter((r) => r.config.trim() || r.detail.trim());
+                      if (filledRows.length > 0) {
+                        demonstration.push({
+                          id: "setup_table",
+                          type: "table",
+                          label: "Setup",
+                          rows: filledRows.map((r) => ({ Configuration: r.config, Detail: r.detail })),
+                        });
                       }
+                      const stepItems = await Promise.all(apfDemoSteps.map(async (step, i) => {
+                        const imageBase64 = step.imageFile ? await readFileAsBase64(step.imageFile) : null;
+                        return {
+                          id: `step_${i + 1}`,
+                          text: step.text,
+                          ...(imageBase64 ? { imageData: [imageBase64] } : { images: [] }),
+                        };
+                      }));
+                      const filledSteps = stepItems.filter((s) => s.text.trim() || (s.imageData?.length));
+                      if (filledSteps.length > 0) {
+                        demonstration.push({
+                          id: "steps",
+                          type: "steps",
+                          label: "Demonstration",
+                          items: filledSteps,
+                        });
+                      }
+                      const demonstrationPayload = demonstration.length > 0 ? demonstration : null;
 
                       let createdPfId = existingPlatformFeature?.id || normalizedPfId;
-                      if (!existingPlatformFeature) {
+                      if (existingPlatformFeature) {
+                        const response = await fetch(`/api/platform-features/${encodeURIComponent(normalizedPfId)}`, {
+                          method: "PUT",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            name,
+                            additionalContext: apfAdditionalContext.trim(),
+                            demonstration: demonstrationPayload,
+                          }),
+                        });
+                        const responsePayload = await response.json().catch(() => ({}));
+                        if (!response.ok) {
+                          throw new Error(responsePayload.error || `API returned ${response.status}`);
+                        }
+                      } else {
                         const response = await fetch("/api/platform-features", {
                           method: "POST",
                           headers: { "Content-Type": "application/json" },
@@ -2476,8 +2796,7 @@ export default function Dashboard() {
                             platformFeatureId,
                             name,
                             additionalContext: apfAdditionalContext.trim(),
-                            demoFileName: apfDemoFile ? apfDemoFile.name : "",
-                            demoFileContentBase64,
+                            demonstration: demonstrationPayload,
                           }),
                         });
 
@@ -2489,9 +2808,32 @@ export default function Dashboard() {
                       }
 
                       for (const draft of riskDrafts) {
-                        let riskDemoFileContentBase64 = "";
-                        if (draft.demoFile) {
-                          riskDemoFileContentBase64 = await readFileAsBase64(draft.demoFile);
+                        const riskDemonstration = [];
+                        const filledRiskRows = draft.demoTable.filter((r) => r.config.trim() || r.detail.trim());
+                        if (filledRiskRows.length > 0) {
+                          riskDemonstration.push({
+                            id: "setup_table",
+                            type: "table",
+                            label: "Setup",
+                            rows: filledRiskRows.map((r) => ({ Configuration: r.config, Detail: r.detail })),
+                          });
+                        }
+                        const riskStepItems = await Promise.all(draft.demoSteps.map(async (step, i) => {
+                          const imageBase64 = step.imageFile ? await readFileAsBase64(step.imageFile) : null;
+                          return {
+                            id: `step_${i + 1}`,
+                            text: step.text,
+                            ...(imageBase64 ? { imageData: [imageBase64] } : { images: [] }),
+                          };
+                        }));
+                        const filledRiskSteps = riskStepItems.filter((s) => s.text.trim() || s.imageData?.length);
+                        if (filledRiskSteps.length > 0) {
+                          riskDemonstration.push({
+                            id: "steps",
+                            type: "steps",
+                            label: "Demonstration",
+                            items: filledRiskSteps,
+                          });
                         }
 
                         const riskResponse = await fetch("/api/risks", {
@@ -2505,8 +2847,7 @@ export default function Dashboard() {
                               atRisk: draft.atRiskObservationsText.split("\n").map((value) => value.trim()).filter(Boolean),
                               notAtRisk: draft.notAtRiskObservationsText.split("\n").map((value) => value.trim()).filter(Boolean),
                             },
-                            demoFileName: draft.demoFile ? draft.demoFile.name : "",
-                            demoFileContentBase64: riskDemoFileContentBase64,
+                            demonstration: riskDemonstration.length > 0 ? riskDemonstration : null,
                           }),
                         });
 
@@ -2526,8 +2867,12 @@ export default function Dashboard() {
                       setApfId(createdPfId);
                       setApfDescription("");
                       setApfAdditionalContext("");
-                      setApfDemoFile(null);
+                      setApfDemoTable([{ config: "", detail: "" }]);
+                      setApfDemoSteps([{ text: "", imageFile: null, imagePreviewUrl: null }]);
                       setRiskDrafts([]);
+                      setApfDeleteConfirm("");
+                      apfPrefilledIdRef.current = createdPfId;
+                      setApfActionResult(existingPlatformFeature ? "updated" : "created");
                       setApfSubmitted(true);
                     } catch (error) {
                       alert(`Unable to add platform feature. ${error.message}`);
@@ -2539,8 +2884,62 @@ export default function Dashboard() {
                     cursor: "pointer", letterSpacing: "0.02em", marginTop: 18,
                   }}
                 >
-                  SAVE PLATFORM FEATURE
+                  {existingPfMatch ? "UPDATE PLATFORM FEATURE" : "SAVE PLATFORM FEATURE"}
                 </button>
+
+                {existingPfMatch && (
+                  <div style={{ marginTop: 28, paddingTop: 20, borderTop: "1px solid #fee2e2" }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#b91c1c", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>Delete Platform Feature</div>
+                    <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 10 }}>
+                      Type <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, color: "#374151" }}>{existingPfMatch.id}</span> to confirm. This permanently deletes the feature, all its risks, and all associated findings.
+                    </div>
+                    <input
+                      type="text"
+                      value={apfDeleteConfirm}
+                      onChange={(e) => setApfDeleteConfirm(e.target.value)}
+                      placeholder={existingPfMatch.id}
+                      style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: "1.5px solid #fca5a5", fontSize: 13, color: "#374151", fontFamily: "'Inter', system-ui, sans-serif", outline: "none", boxSizing: "border-box", marginBottom: 10 }}
+                    />
+                    <button
+                      disabled={apfDeleteConfirm !== existingPfMatch.id}
+                      onClick={async () => {
+                        const targetId = existingPfMatch.id;
+                        try {
+                          const response = await fetch(`/api/platform-features/${encodeURIComponent(targetId)}`, { method: "DELETE" });
+                          if (!response.ok) {
+                            const err = await response.json().catch(() => ({}));
+                            throw new Error(err.error || `API returned ${response.status}`);
+                          }
+                          const dashboardResponse = await fetch("/api/dashboard-data");
+                          if (dashboardResponse.ok) {
+                            applyDashboardData(await dashboardResponse.json());
+                            setDataVersion((v) => v + 1);
+                          }
+                          setApfId("");
+                          setApfDescription("");
+                          setApfAdditionalContext("");
+                          setApfDemoTable([{ config: "", detail: "" }]);
+                          setApfDemoSteps([{ text: "", imageFile: null, imagePreviewUrl: null }]);
+                          setRiskDrafts([]);
+                          setApfDeleteConfirm("");
+                          setApfActionResult("deleted");
+                          setApfSubmitted(true);
+                        } catch (error) {
+                          alert(`Unable to delete platform feature. ${error.message}`);
+                        }
+                      }}
+                      style={{
+                        width: "100%", padding: "11px 0", borderRadius: 10, border: "none",
+                        background: apfDeleteConfirm === existingPfMatch.id ? "#b91c1c" : "#f3f4f6",
+                        color: apfDeleteConfirm === existingPfMatch.id ? "#fff" : "#9ca3af",
+                        fontSize: 13, fontWeight: 700, cursor: apfDeleteConfirm === existingPfMatch.id ? "pointer" : "not-allowed",
+                        letterSpacing: "0.02em", transition: "background 0.15s, color 0.15s",
+                      }}
+                    >
+                      DELETE PLATFORM FEATURE
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Platform Feature Tree — hierarchical with dropdown risks */}

@@ -10,7 +10,7 @@ export const DB_PATH = path.resolve(process.cwd(), "data", "dashboard.db");
 export const UPLOADS_DIR = path.resolve(process.cwd(), "uploads");
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
-const ALLOWED_UPLOAD_EXTENSIONS = new Set([".pdf", ".docx"]);
+const ALLOWED_UPLOAD_EXTENSIONS = new Set([".pdf", ".docx", ".json"]);
 
 export function ensureDataDirectory() {
   const dir = path.dirname(DB_PATH);
@@ -29,6 +29,48 @@ function sanitizeFilename(rawName) {
   const base = path.basename(String(rawName || "").trim());
   const cleaned = base.replace(/[^a-zA-Z0-9._-]/g, "_");
   return cleaned || "evidence.bin";
+}
+
+export function persistDemonstrationJson(blocks, featureId) {
+  if (!Array.isArray(blocks) || blocks.length === 0) return null;
+
+  ensureUploadsDirectory();
+
+  const imgDir = featureId
+    ? path.join(UPLOADS_DIR, "features", featureId)
+    : UPLOADS_DIR;
+  if (featureId && !fs.existsSync(imgDir)) {
+    fs.mkdirSync(imgDir, { recursive: true });
+  }
+
+  const processed = blocks.map((block) => {
+    if (block.type !== "steps") return block;
+
+    const processedItems = (block.items || []).map((item, stepIdx) => {
+      const imageDataArr = Array.isArray(item.imageData) ? item.imageData : [];
+      if (!imageDataArr.length) return { id: item.id, text: item.text, images: item.images || [] };
+
+      const stepNum = stepIdx + 1;
+      const savedImages = imageDataArr.map((base64, imgIdx) => {
+        const normalizedBase64 = base64.includes(",") ? base64.slice(base64.indexOf(",") + 1) : base64;
+        const buffer = Buffer.from(normalizedBase64, "base64");
+        const ext = base64.startsWith("data:image/jpeg") || base64.startsWith("data:image/jpg") ? ".jpg"
+          : base64.startsWith("data:image/gif") ? ".gif"
+          : base64.startsWith("data:image/webp") ? ".webp"
+          : ".png";
+        const basename = imgIdx === 0 ? `step-${stepNum}${ext}` : `step-${stepNum}-${imgIdx + 1}${ext}`;
+        fs.writeFileSync(path.join(imgDir, basename), buffer);
+        return featureId ? `features/${featureId}/${basename}` : basename;
+      });
+
+      const { imageData: _dropped, ...rest } = item;
+      return { ...rest, images: savedImages };
+    });
+
+    return { ...block, items: processedItems };
+  });
+
+  return JSON.stringify({ demonstration: processed });
 }
 
 export function persistDemoFile(payload) {
