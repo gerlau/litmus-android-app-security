@@ -12,9 +12,7 @@ dist
 dist-ssr
 *.local
 *.log
-data/*.backup.db
-data/*.original.db
-data/dashboard_original.db
+data/*.db
 uploads/*
 !uploads/.gitkeep
 
