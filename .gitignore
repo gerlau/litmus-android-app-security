@@ -12,7 +12,7 @@ dist
 dist-ssr
 *.local
 *.log
-data/*.db
+data/*
 uploads/*
 !uploads/.gitkeep
 
